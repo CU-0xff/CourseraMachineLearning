@@ -1,0 +1,98 @@
+---
+title: "Practical Machine Learning - Weight Lifting"
+author: "Frank Fischer"
+date: "September 9, 2015"
+output: html_document
+---
+
+##Loading and Preparing the data
+
+```{r}
+#Loading libraries
+library(caret)
+library(rattle)
+
+#Downloading and reading in of data
+
+if(!exists("training")) {
+    #download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "training.csv", method="curl")
+    
+    #download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "testing.csv", method="curl")
+    
+    training <- read.csv(file="training.csv", na.strings = c("NA","#DIV/0!", ""))
+    testing <- read.csv(file="testing.csv", na.strings=c("NA","#DIV/0!",""))
+
+}
+
+#Make reproducable
+set.seed(1234)
+```
+
+The data contains measurements and their classification as described here:
+
+_"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E)."_
+Read more: *http://groupware.les.inf.puc-rio.br/har#ixzz3lLXoFGi2*
+
+Class C and D measurement should reflect an unfinished move; while Class E should show a significance in the belt measures as it is the nearest to the hip.
+
+Every sensor (belt, arm, dumbbell, forearm) provides a multitude of sensor data - some of which are not completely measured. To be able to run a training, we need to reduce the provided columns to save computing time while reflecting the specific characteristics of the data in the selection. The selection therefore should contain:
+
+* Direction information of the movement (such as roll, pitch, and yaw)
+* Quantity of the movement (such as total_acceleration)
+
+Surveying the data and doing a correlation analysis showed that total acceleration in the belt measurement is correlated to roll (0.98) and yaw (0.76). As roll, pitch, and yaw are provided for all measurements, it therefore seems feasible to use these three values per sensor as input.
+
+##Model Selection and Training
+
+Given the nature of the problem as a classification problem, a tree or a neural network seem both feasible methods. We therefor split the training data in 70% train and 30% test and begin to train a tree. Using the predict function on the generated test set, we calculate the misclassification. The CARET package will use bootstrapping within the training set as additional cross validation.
+
+```{r}
+
+selected_fields = c("roll_belt", "roll_arm", "roll_dumbbell", "roll_forearm", "pitch_belt", "pitch_arm", "pitch_dumbbell", "pitch_forearm", "yaw_belt", "yaw_arm", "yaw_dumbbell", "yaw_forearm", "classe")
+
+#Generate test and train set
+trainIndex <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+trainData <- training[trainIndex,selected_fields]
+testData <- training[-trainIndex,selected_fields]
+
+#Generate model
+tree <- train(classe ~., data=trainData, method="rpart")
+tree
+
+#Show Model parameter
+fancyRpartPlot(tree$finalModel)
+varImp(tree)
+```
+
+The last command shows the importance of the input variables to the final outcome. As we can see, some do not contribute. This seems logical as some movements of sensors are simply infeasible, e.g. the pitch of the arm. In further research, this might be variables we could leave out of scope.
+
+As an additional cross validation the set was used to train a neural network which did not deliver better results but needs significant more processing time. So, we discard this option.
+
+##Discussion of Results
+
+In the following, we apply the model on the 30% of data defined for test.
+
+```{r}
+pred <- predict(tree, newdata=testData)
+
+(tab <- table(pred, testData$classe))
+
+diag(prop.table(tab,1))
+```
+
+The table shows hits and errors. All predictions have a hitrate above the simple statistcal expectation of 20%. It is very good in predicting E cases with 99% accuracy.
+
+All in all, the prediction rate lies at:
+```{r}
+mean(pred==testData$classe)
+```
+
+This is better than an equally statistical distribution (aka rolling a 5 sided dice).
+
+At last, we apply the model on the testing data provided in the question. As it misses the classe column, we cannot do any further checks.
+
+```{r}
+pred <- predict(tree, newdata=testing)
+
+pred
+```
